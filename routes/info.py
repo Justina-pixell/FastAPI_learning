@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from db import get_connection
+
 
 information = APIRouter()
-
-
 
 
 
@@ -30,6 +30,7 @@ user = {
 }
 
 
+
 #helper functions
 def user_exists(a):
     if a  in user:
@@ -40,16 +41,18 @@ def user_do_not_exists(a):
          raise HTTPException(status_code=400, detail="Patient ID does not  exists") 
 
 
+
+
     
 # Base models
 class User(BaseModel):
-    user_id:str
+    user_id:int
     name:str
-    age:str
+    age:int
     gender:str
-    phone:str
+   
     email:str
-    emergency_contact:str
+   
 
 class Update(BaseModel):
     updating:str
@@ -60,8 +63,17 @@ class Update(BaseModel):
 # get user information via id 
 @information.get("/members")
 def members_info(user_id:int):
+    #calling the db
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM patients WHERE user_id = %s",
+        (user_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
     user_do_not_exists(user_id)
-    return user[user_id]
+    return row
 
 
 
@@ -70,21 +82,36 @@ def members_info(user_id:int):
 # create patient profile
 @information.post("/members")
 def add_profile(new_info:User):
-    if new_info.user_id  in user:
-       raise HTTPException(status_code=400, detail="Patient ID already exists, profile denied")
-
+    #calling the db
+    conn=get_connection()
+    cursor=conn.cursor(dictionary=True)
+    cursor.execute("SELECT user_id FROM patients WHERE user_id = %s",(new_info.user_id,))
+    checker=cursor.fetchone()
+    if  checker:
+         cursor.close()
+         conn.close()
+         raise HTTPException(
+             status_code=400,
+             detail="Patient ID already exists")
+    
     else:
-        user[new_info.user_id]={"user_id":new_info.user_id, 
-                                "name":new_info.name,
-                                "age":new_info.age,
-                                "gender":new_info.gender,
-                                "phone":new_info.phone,
-                                "email":new_info.email,
-                                "emergency_contact":new_info.emergency_contact}
-        return "patient info added"
+        cursor.execute(
+            "insert into patients (user_id,name,age,gender,email) values(%s,%s,%s,%s,%s)",
+            (new_info.user_id,
+             new_info.name,
+             new_info.age,
+             new_info.gender,
+             new_info.email
+         )
 
+    )
 
-# updating personal info 
+   
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return {"message": "Patient info added"}
+
 
 
 
@@ -92,22 +119,37 @@ def add_profile(new_info:User):
 
 @information.put("/members/{user_id}")
 def update_info(user_id:int,new_info:User):
-    user_do_not_exists(user_id)
-    user[user_id]={"user_id":new_info.user_id, 
-                    "name":new_info.name,
-                    "age":new_info.age,
-                    "gender":new_info.gender,
-                    "phone":new_info.phone,
-                    "email":new_info.email,
-                    "emergency_contact":new_info.emergency_contact}
-    return user[user_id]
+    conn=get_connection()
+    cursor=conn.cursor()
+    cursor.execute("""update patients set name=%s, 
+                     age =%s ,
+                     gender=%s,
+                     email=%s 
+                    where user_id=%s;""",
+                    (new_info.name,new_info.age,new_info.gender,new_info.email,new_info.user_id))
+    cursor.execute("select * from patients where user_id=%s",(new_info.user_id,))
+    row=cursor.fetchone()
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-@information.put("/members/specific/{user_id}")
-def update_pro(user_id:int,new_info:Update):
-    user_do_not_exists(user_id)
-    if new_info.updating not in user[user_id]:
-        raise HTTPException(status_code=400, detail="Invalid field name")
-    else:
-        user[user_id][new_info.updating]=new_info.updater
+    return row
+    # user_do_not_exists(user_id)
+    # user[user_id]={"user_id":new_info.user_id, 
+    #                 "name":new_info.name,
+    #                 "age":new_info.age,
+    #                 "gender":new_info.gender,
+    #                 "phone":new_info.phone,
+    #                 "email":new_info.email,
+    #                 "emergency_contact":new_info.emergency_contact}
+    # return user[user_id]
+
+# @information.put("/members/specific/{user_id}")
+# def update_pro(user_id:int,new_info:Update):
+#     user_do_not_exists(user_id)
+#     if new_info.updating not in user[user_id]:
+#         raise HTTPException(status_code=400, detail="Invalid field name")
+#     else:
+#         user[user_id][new_info.updating]=new_info.updater
         
-    return {"message": "Field updated", "data": user[user_id]}
+#     return {"message": "Field updated", "data": user[user_id]}
